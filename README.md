@@ -117,20 +117,20 @@ Invoke-RestMethod "http://127.0.0.1:8000/meters/J100002/energy?from=2026-06-25&t
 
 ### What assumptions did you make?
 
-(write in your own words)
+The biggest assumption is the timezone. The portal’s timestamps (DD/MM/YYYY HH:mm) carry no timezone, so I assumed UTC+05:30 because the meters are around Jaipur and India has no daylight saving. I report that assumption in every energy response. I also assumed that kwh and kvah are cumulative register readings and not usage per interval, because the values keep climbing, so my API computes usage as the difference between consecutive readings. I assumed that a meter page returning an error node means the meter doesn’t exist, since the portal sends that error with HTTP 200. Last, I filled blank hierarchy levels from other meters on the same transformer. That one I verified: across all 403 meters no transformer had two different values at any level, and the filled values are marked inferred: true. The timezone and the “not found” meaning are still unverified.
 
 ### Which part was the most difficult, and how did you get unstuck?
 
-(write in your own words)
+The hardest part was the meter detail pages. The portal is a SvelteKit app, and its \_\_data.json stores values as indexes into one flat array, so I first had to understand how to follow those indexes back to real values. My decoder worked on the first meter, but when I crawled all 403 pages it crashed on a KeyError after only a few of them. Nothing told me why, so I changed the crawler to record each failure with the raw response and keep going instead of stopping
 
 ### If you had another day, what would you improve?
 
-(write in your own words)
+First, I would measure the portal’s rate limit properly. I only know that about 100 energy requests in a row triggered HTTP 429 and that it had cleared a few minutes later, so I would find the window size and whether it applies per session, per user or per IP. Then I could set the request spacing from evidence and not from a guess. Second, I would pre-warm the cache in a background task so the first API request isn’t slow, and store it in SQLite so a restart doesn’t lose it. I would also expose a “data as of” timestamp.
 
 ### What mistake did you make while solving this?
 
-(write in your own words)
+In my first login script I wrote the URL as BASE + "\login" with a backslash, the way Windows file paths are written. Python printed a SyntaxWarning about an invalid escape sequence, and the script also failed because my environment variables weren’t set. I didn’t understand the warning at first and only fixed it after it was explained that web addresses use forward slashes. The mistake was small, but it taught me to read warnings in the terminal output instead of only looking for the final error. Now I print the full request URL while debugging so I can check it.
 
 ### If you were reviewing your own submission, what would you criticise?
 
-(write in your own words)
+The first request to the API is slow, about five seconds for the meter list and longer for the first meter detail, because the cache starts empty and the portal has to be crawled page by page. The cache lives in memory, so every restart throws it away. I also put one lock around all portal calls to protect against the rate limit, which means cache misses wait for each other. The hierarchy repair is safe for this snapshot only because I checked all 403 meters, and if the portal data changed, the “no contradictions” assumption could stop being true. The timezone is an assumption and the rate limit is something I observed without understanding
