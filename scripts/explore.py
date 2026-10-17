@@ -2,6 +2,9 @@ import os
 import requests
 import time
 from collections import Counter
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE = "https://urja-ops.flockenergy.tech"
 
