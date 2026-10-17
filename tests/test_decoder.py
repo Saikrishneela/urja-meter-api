@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.decoder import parse_meter_page, resolve
+from app.decoder import PageError, parse_meter_page, resolve
 
 
 def test_resolve_follows_indexes():
@@ -54,4 +54,16 @@ def test_parse_unknown_detail_shape_fails_loudly():
     data = [{"meterId": 1, "detail": 2, "hierarchy": 3}, "J1", {"other": 1}, {}]
     payload = {"nodes": [{"type": "data", "data": data}]}
     with pytest.raises(ValueError):
+        parse_meter_page(payload)
+
+
+def test_parse_error_node_raises_page_error():
+    payload = {
+        "nodes": [
+            None,
+            {"type": "data", "data": []},
+            {"type": "error", "error": {"message": "Not found"}},
+        ]
+    }
+    with pytest.raises(PageError):
         parse_meter_page(payload)

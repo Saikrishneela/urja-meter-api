@@ -1,6 +1,10 @@
 import json
 
 
+class PageError(ValueError):
+    """The page data held an error node instead of meter data."""
+
+
 def resolve(data, i):
     """Follow index i in SvelteKit's flat array and rebuild the real value."""
     if i < 0:
@@ -32,8 +36,10 @@ def _read_detail(detail):
 
 def parse_meter_page(payload):
     """Turn a meter page's __data.json into detail fields plus hierarchy."""
-    data = payload["nodes"][-1]["data"]
-    root = resolve(data, 0)
+    node = payload["nodes"][-1]
+    if not node or node.get("type") == "error":
+        raise PageError(f"portal page error: {node}")
+    root = resolve(node["data"], 0)
     return {
         "meterId": root["meterId"],
         "detail": _read_detail(root["detail"]),

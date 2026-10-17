@@ -2,7 +2,7 @@ import time
 
 import requests
 
-from app.decoder import parse_meter_page
+from app.decoder import PageError, parse_meter_page
 
 
 class PortalError(Exception):
@@ -11,6 +11,10 @@ class PortalError(Exception):
 
 class AuthError(PortalError):
     """Login failed, or the session could not be renewed."""
+
+
+class NotFoundError(PortalError):
+    """The portal has no such meter."""
 
 
 class PortalClient:
@@ -56,6 +60,8 @@ class PortalClient:
                 self.login()
                 relogged = True
                 continue
+            if r.status_code == 404:
+                raise NotFoundError(f"not found: {path}")
             if r.status_code >= 500:
                 last_error = PortalError(f"HTTP {r.status_code} from {path}")
                 time.sleep(0.5 * 2**attempt)
@@ -83,8 +89,13 @@ class PortalClient:
     def dts(self):
         return self._paginate("/portal/dts")
 
-    def energy(self, meter_id):
-        return self._get(f"/portal/meters/{meter_id}/energy").json()["data"]
+    def energy(self, meter_id, start=None, end=None):
+        params = {}
+        if start:
+            params["from"] = start
+        if end:
+            params["to"] = end
+        return self._get(f"/portal/meters/{meter_id}/energy", **params).json()["data"]
 
     def geo(self, meter_id):
         return self._get(f"/portal/meters/{meter_id}/geo").json()["data"]
@@ -94,4 +105,7 @@ class PortalClient:
             f"/meters/{meter_id}/__data.json",
             **{"x-sveltekit-invalidated": "001"},
         )
-        return parse_meter_page(r.json())
+        try:
+            return parse_meter_page(r.json())
+        except PageError as exc:
+            raise NotFoundError(f"no page data for {meter_id}: {exc}") from exc
