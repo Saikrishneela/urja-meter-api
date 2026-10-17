@@ -3,6 +3,7 @@ import requests
 import time
 from collections import Counter
 from dotenv import load_dotenv
+from app.decoder import parse_meter_page
 
 load_dotenv()
 
@@ -111,3 +112,10 @@ if __name__ == "__main__":
     r2 = anon.get(BASE + "/portal/meters/search", params={"q": "", "page": 1})
     print("No-login status:", r2.status_code)
     print("No-login body:", r2.text[:200])
+
+    r = s.get(
+        BASE + "/meters/J100000/__data.json",
+        params={"x-sveltekit-invalidated": "001"},
+    )
+    print(r.status_code)
+    print(parse_meter_page(r.json()))
