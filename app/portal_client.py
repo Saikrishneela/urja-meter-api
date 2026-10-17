@@ -17,15 +17,29 @@ class NotFoundError(PortalError):
     """The portal has no such meter."""
 
 
+def _retry_delay(response, attempt):
+    """Seconds to wait before retrying: the portal's Retry-After if it sends one."""
+    try:
+        return min(float(response.headers.get("Retry-After")), 30.0)
+    except (TypeError, ValueError):
+        return 1.0 * 2**attempt
+
+
 class PortalClient:
-    def __init__(self, base_url, email, password, timeout=15, retries=3):
+    def __init__(
+        self, base_url, email, password, timeout=15, retries=5, min_interval=0.25
+    ):
         self.base_url = base_url.rstrip("/")
         self._email = email
         self._password = password
         self.timeout = timeout
         self.retries = retries
+        self.min_interval = min_interval
+        self._last_request = 0.0
         self._session = requests.Session()
         self._logged_in = False
+        self.rate_limited = 0
+        self.last_rate_limit_headers = {}
 
     def login(self):
         self._session.cookies.clear()
@@ -40,12 +54,19 @@ class PortalClient:
             raise AuthError(f"login failed: HTTP {r.status_code}")
         self._logged_in = True
 
+    def _throttle(self):
+        wait = self._last_request + self.min_interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_request = time.monotonic()
+
     def _get(self, path, **params):
         if not self._logged_in:
             self.login()
         relogged = False
         last_error = None
         for attempt in range(self.retries):
+            self._throttle()
             try:
                 r = self._session.get(
                     self.base_url + path, params=params, timeout=self.timeout
@@ -62,11 +83,22 @@ class PortalClient:
                 continue
             if r.status_code == 404:
                 raise NotFoundError(f"not found: {path}")
+            if r.status_code == 429:
+                self.rate_limited += 1
+                self.last_rate_limit_headers = {
+                    k: v
+                    for k, v in r.headers.items()
+                    if k.lower().startswith(("retry-after", "x-ratelimit"))
+                }
+                last_error = PortalError(f"rate limited on {path}")
+                time.sleep(_retry_delay(r, attempt))
+                continue
             if r.status_code >= 500:
                 last_error = PortalError(f"HTTP {r.status_code} from {path}")
                 time.sleep(0.5 * 2**attempt)
                 continue
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise PortalError(f"HTTP {r.status_code} from {path}")
             return r
         raise PortalError(f"giving up on {path}: {last_error}")
 
@@ -80,7 +112,6 @@ class PortalClient:
             if len(rows) >= body["total"]:
                 break
             page += 1
-            time.sleep(0.1)
         return rows
 
     def meters(self):
